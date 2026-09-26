@@ -34,6 +34,7 @@
 
     <!-- QR Code Scanner Library -->
     <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
     <style>
         :root {
@@ -126,7 +127,7 @@
             font-weight: 500; 
         }
 
-        input[type="text"], textarea {
+        input[type="text"], input[type="password"], textarea {
             width: 100%;
             padding: 10px;
             background: #0f172a;
@@ -229,6 +230,72 @@
             margin-top: 8px; 
         }
 
+        .popup-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .popup-action {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--primary);
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .popup-action-secondary { background: #334155; }
+
+        .wifi-dialog {
+            width: min(92vw, 380px);
+            max-height: 90vh;
+            margin: auto;
+            padding: 20px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel-bg);
+            color: var(--text-main);
+        }
+
+        .wifi-dialog::backdrop { background: rgba(0, 0, 0, 0.65); }
+
+        .dialog-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .dialog-header h2 { font-size: 1.1rem; }
+
+        .dialog-close {
+            width: 36px;
+            height: 36px;
+            border: 0;
+            border-radius: 4px;
+            background: transparent;
+            color: var(--text-main);
+            cursor: pointer;
+        }
+
+        #wifiQrCode {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 256px;
+            height: 256px;
+            max-width: 100%;
+            margin: 16px auto;
+            padding: 8px;
+            background: white;
+        }
+
+        .wifi-dialog .btn-group { margin-top: 18px; }
+
         @media (max-width: 768px) {
             body { flex-direction: column-reverse; }
             #sidebar { width: 100%; height: 50vh; }
@@ -302,6 +369,41 @@
     <!-- Map Area -->
     <div id="map"></div>
 
+    <dialog id="connectDialog" class="wifi-dialog" aria-labelledby="connectTitle">
+        <div class="dialog-header">
+            <h2 id="connectTitle">Connect to Wi-Fi</h2>
+            <button type="button" class="dialog-close" id="closeConnectDialog" aria-label="Close" title="Close">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <p id="connectSsid" class="location-status"></p>
+        <div id="wifiQrCode" aria-hidden="true"></div>
+        <p id="connectMessage" class="location-status" role="status" aria-live="polite">Scan with your phone camera to join.</p>
+    </dialog>
+
+    <dialog id="editDialog" class="wifi-dialog" aria-labelledby="editTitle">
+        <div class="dialog-header">
+            <h2 id="editTitle">Edit Wi-Fi details</h2>
+            <button type="button" class="dialog-close" id="closeEditDialog" aria-label="Close" title="Close">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <form id="editForm">
+            <div class="form-group">
+                <label for="editSsid">Network name (SSID)</label>
+                <input type="text" id="editSsid" maxlength="32" required>
+            </div>
+            <div class="form-group">
+                <label for="editPassword">Network password</label>
+                <input type="password" id="editPassword" autocomplete="new-password">
+            </div>
+            <div class="btn-group">
+                <button type="button" class="btn btn-secondary" id="cancelEdit">Cancel</button>
+                <button type="submit" class="btn" id="saveEdit">Save changes</button>
+            </div>
+        </form>
+    </dialog>
+
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
@@ -312,15 +414,24 @@
         let map, userMarker;
         let selectedCoords = null;
         let html5QrCode = null;
+        const hotspotMarkers = new Map();
+        let editingHotspot = null;
 
         function initMap() {
             // Center map initially
             map = L.map('map').setView([27.7172, 85.3240], 13);
 
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
                 maxZoom: 19
-            }).addTo(map);
+            });
+            const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+                maxZoom: 19
+            });
+
+            streetLayer.addTo(map);
+            L.control.layers({ Street: streetLayer, Satellite: satelliteLayer }).addTo(map);
 
             // Handle manual pin selection on click
             map.on('click', (e) => {
@@ -356,14 +467,43 @@
                 });
 
                 if (response.ok) {
+                    const result = await response.json();
                     alert("Wi-Fi spot successfully published to MySQL database!");
-                    renderHotspotOnMap(newSpot);
+                    renderHotspotOnMap({ ...newSpot, id: result.id });
                 } else {
                     const errData = await response.json();
                     alert("Database Save Failed: " + errData.error);
                 }
             } catch (err) {
                 alert("Server Error: Unable to reach http://localhost:3000. Is server.js running?");
+            }
+        }
+
+        async function updateHotspotInDatabase(spot, ssid, password) {
+            const saveButton = document.getElementById('saveEdit');
+            saveButton.disabled = true;
+
+            try {
+                const response = await fetch(`${API_URL}/${encodeURIComponent(spot.id)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ssid, password: password || 'None (Open)' })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    alert("Update failed: " + errorData.error);
+                    return;
+                }
+
+                const updatedSpot = { ...spot, ssid, password: password || 'None (Open)' };
+                renderHotspotOnMap(updatedSpot);
+                document.getElementById('editDialog').close();
+                alert("Wi-Fi details updated.");
+            } catch (err) {
+                alert("Server Error: Unable to update this hotspot.");
+            } finally {
+                saveButton.disabled = false;
             }
         }
 
@@ -465,6 +605,66 @@
             }
         }
 
+        const editDialog = document.getElementById('editDialog');
+        const editForm = document.getElementById('editForm');
+
+        function openEditDialog(spot) {
+            editingHotspot = spot;
+            document.getElementById('editSsid').value = spot.ssid || '';
+            document.getElementById('editPassword').value =
+                spot.password === 'None (Open)' || spot.password === 'None (Open Network)' ? '' : (spot.password || '');
+            editDialog.showModal();
+        }
+
+        editForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+            if (!editingHotspot) return;
+
+            updateHotspotInDatabase(
+                editingHotspot,
+                document.getElementById('editSsid').value,
+                document.getElementById('editPassword').value
+            );
+        });
+
+        document.getElementById('closeEditDialog').addEventListener('click', () => editDialog.close());
+        document.getElementById('cancelEdit').addEventListener('click', () => editDialog.close());
+        editDialog.addEventListener('close', () => {
+            editingHotspot = null;
+            editForm.reset();
+        });
+
+        const connectDialog = document.getElementById('connectDialog');
+        const wifiQrCode = document.getElementById('wifiQrCode');
+        document.getElementById('closeConnectDialog').addEventListener('click', () => connectDialog.close());
+
+        function escapeWifiQrValue(value) {
+            return String(value).replace(/([\\;:,\"])/g, '\\$1');
+        }
+
+        function showWifiQr(spot) {
+            const password = spot.password === 'None (Open)' || spot.password === 'None (Open Network)' ? '' : (spot.password || '');
+            const qrText = password
+                ? `WIFI:T:WPA;S:${escapeWifiQrValue(spot.ssid)};P:${escapeWifiQrValue(password)};;`
+                : `WIFI:T:nopass;S:${escapeWifiQrValue(spot.ssid)};;`;
+
+            document.getElementById('connectSsid').textContent = spot.ssid;
+            const message = document.getElementById('connectMessage');
+            wifiQrCode.replaceChildren();
+            if (typeof QRCode === 'undefined') {
+                message.textContent = 'QR code could not be generated. Connect through your device Wi-Fi settings.';
+            } else {
+                message.textContent = 'Scan with your phone camera to join.';
+                new QRCode(wifiQrCode, {
+                    text: qrText,
+                    width: 240,
+                    height: 240,
+                    correctLevel: QRCode.CorrectLevel.M
+                });
+            }
+            connectDialog.showModal();
+        }
+
         const consentCheckbox = document.getElementById('ownerConsent');
         const submitBtn = document.getElementById('btnSubmit');
 
@@ -493,6 +693,11 @@
         });
 
         function renderHotspotOnMap(spot) {
+            const spotId = String(spot.id ?? '');
+            if (spotId && hotspotMarkers.has(spotId)) {
+                map.removeLayer(hotspotMarkers.get(spotId));
+            }
+
             const wifiIcon = L.divIcon({
                 html: `<div style="background:#10b981; color:white; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid white; box-shadow:0 0 10px rgba(0,0,0,0.3);">
                         <i class="fa-solid fa-wifi"></i>
@@ -509,12 +714,22 @@
                     <p style="margin-top:8px;"><strong>SSID:</strong> ${escapeHtml(spot.ssid)}</p>
                     <div class="wifi-key">Key: ${escapeHtml(spot.password)}</div>
                     <p style="margin-top:8px; font-style:italic;">"${escapeHtml(spot.notes)}"</p>
+                    <div class="popup-actions">
+                        <button type="button" class="popup-action" data-action="connect" data-id="${escapeHtml(spotId)}">Connect</button>
+                        <button type="button" class="popup-action popup-action-secondary" data-action="edit" data-id="${escapeHtml(spotId)}">Edit</button>
+                    </div>
                 </div>
             `;
 
-            L.marker([parseFloat(spot.lat), parseFloat(spot.lng)], { icon: wifiIcon })
+            const marker = L.marker([parseFloat(spot.lat), parseFloat(spot.lng)], { icon: wifiIcon })
                 .addTo(map)
                 .bindPopup(popupContent);
+            marker.on('popupopen', (event) => {
+                const popup = event.popup.getElement();
+                popup.querySelector('[data-action="connect"]').addEventListener('click', () => showWifiQr(spot));
+                popup.querySelector('[data-action="edit"]').addEventListener('click', () => openEditDialog(spot));
+            });
+            if (spotId) hotspotMarkers.set(spotId, marker);
         }
 
         function escapeHtml(str) {
