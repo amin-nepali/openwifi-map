@@ -1,0 +1,23 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build OpenWifi debug APK",
+			"type": "shell",
+			"command": "android-app\\gradlew.bat",
+			"args": [
+				"-p",
+				"android-app",
+				"assembleDebug"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": []
+		}
+	]
+}
