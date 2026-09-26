@@ -104,6 +104,20 @@
             margin-bottom: 14px; 
         }
 
+        .field-label {
+            display: block;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+
+        .location-status {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            line-height: 1.4;
+        }
+
         label { 
             display: block; 
             font-size: 0.85rem; 
@@ -252,32 +266,22 @@
 
                 <form id="wifiForm">
                     <div class="form-group">
-                        <label>Venue / Location Name</label>
-                        <input type="text" id="venueName" placeholder="e.g. Central Perk Cafe" required>
-                    </div>
-
-                    <div class="form-group">
                         <label>Wi-Fi Network Name (SSID)</label>
-                        <input type="text" id="ssid" placeholder="Auto-filled via QR or type SSID" required>
+                        <input type="text" id="ssid" placeholder="Auto-filled via QR or type SSID" maxlength="32" required>
                     </div>
 
                     <div class="form-group">
                         <label>Network Password</label>
-                        <input type="text" id="password" placeholder="Auto-filled via QR or type key">
+                        <input type="password" id="password" placeholder="Auto-filled via QR or type key" autocomplete="new-password">
                     </div>
 
                     <div class="form-group">
-                        <label>Usage Note / Courtesy Rules</label>
-                        <textarea id="notes" rows="2" placeholder="e.g. Free with purchase"></textarea>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Current Pin Location</label>
-                        <input type="text" id="locationStatus" value="Click 'Get Location' below" readonly style="color: var(--text-muted);">
+                        <span class="field-label">Location</span>
+                        <p id="locationStatus" class="location-status" role="status" aria-live="polite">Getting your current location...</p>
                     </div>
 
                     <button type="button" class="btn btn-secondary" id="btnLocate" style="margin-bottom: 12px;">
-                        <i class="fa-solid fa-location-crosshairs"></i> Get GPS Location
+                        <i class="fa-solid fa-location-crosshairs"></i> Use Current Location
                     </button>
 
                     <div class="consent-box">
@@ -323,11 +327,7 @@
                 setFormLocation(e.latlng.lat, e.latlng.lng, "Selected pin on map");
             });
 
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(pos => {
-                    map.setView([pos.coords.latitude, pos.coords.longitude], 16);
-                });
-            }
+            locateUser();
 
             // Fetch stored hotspots from MySQL DB via server.js
             fetchHotspotsFromDatabase();
@@ -426,23 +426,32 @@
         // ------------------------------------------
         // Map Location & Form Handlers
         // ------------------------------------------
-        document.getElementById('btnLocate').addEventListener('click', () => {
-            if (!navigator.geolocation) return alert("Geolocation not supported");
+        document.getElementById('btnLocate').addEventListener('click', locateUser);
 
+        function locateUser() {
+            const status = document.getElementById('locationStatus');
+            if (!navigator.geolocation) {
+                status.textContent = "Location is unavailable. Select a pin on the map.";
+                return;
+            }
+
+            status.textContent = "Getting your current location...";
             navigator.geolocation.getCurrentPosition(
                 (pos) => {
                     const { latitude, longitude } = pos.coords;
                     map.setView([latitude, longitude], 16);
-                    setFormLocation(latitude, longitude, "GPS Location Acquired");
+                    setFormLocation(latitude, longitude, "Current location");
                 },
-                (err) => alert("Unable to get location: " + err.message),
+                () => {
+                    status.textContent = "Could not get your location. Select a pin on the map or try again.";
+                },
                 { enableHighAccuracy: true }
             );
-        });
+        }
 
         function setFormLocation(lat, lng, labelText) {
             selectedCoords = { lat, lng };
-            document.getElementById('locationStatus').value = `${labelText} (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+            document.getElementById('locationStatus').textContent = `${labelText} (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
 
             if (userMarker) {
                 userMarker.setLatLng([lat, lng]);
@@ -451,7 +460,7 @@
                 userMarker.on('dragend', (e) => {
                     const pos = e.target.getLatLng();
                     selectedCoords = { lat: pos.lat, lng: pos.lng };
-                    document.getElementById('locationStatus').value = `Custom Marker (${pos.lat.toFixed(4)}, ${pos.lng.toFixed(4)})`;
+                    document.getElementById('locationStatus').textContent = `Custom pin (${pos.lat.toFixed(4)}, ${pos.lng.toFixed(4)})`;
                 });
             }
         }
@@ -469,10 +478,10 @@
             if (!selectedCoords) return alert("Please select a location on the map.");
 
             const payload = {
-                venueName: document.getElementById('venueName').value,
+                venueName: "Wi-Fi Hotspot",
                 ssid: document.getElementById('ssid').value,
                 password: document.getElementById('password').value || "None (Open)",
-                notes: document.getElementById('notes').value || "No special instructions",
+                notes: "No special instructions",
                 lat: selectedCoords.lat,
                 lng: selectedCoords.lng
             };
@@ -481,8 +490,6 @@
 
             document.getElementById('wifiForm').reset();
             submitBtn.disabled = true;
-            selectedCoords = null;
-            if (userMarker) map.removeLayer(userMarker);
         });
 
         function renderHotspotOnMap(spot) {
