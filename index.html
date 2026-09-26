@@ -3,13 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Community Wi-Fi Sharing Map</title>
+    <title>Community Wi-Fi Map</title>
     
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- QR Code Library (Camera & Gallery File Scanner) -->
+    <script src="https://unpkg.com/html5-qrcode"></script>
 
     <style>
         :root {
@@ -104,6 +107,12 @@
             border-color: var(--primary);
         }
 
+        .btn-group {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
         .consent-box {
             background: rgba(37, 99, 235, 0.1);
             border: 1px solid rgba(37, 99, 235, 0.3);
@@ -133,7 +142,7 @@
 
         .btn {
             width: 100%;
-            padding: 12px;
+            padding: 10px;
             background: var(--primary);
             color: white;
             border: none;
@@ -145,23 +154,25 @@
             align-items: center;
             justify-content: center;
             gap: 8px;
+            font-size: 0.85rem;
         }
 
-        .btn:hover {
-            background: var(--primary-hover);
+        .btn:hover { background: var(--primary-hover); }
+        .btn-secondary { background: #334155; }
+        .btn-secondary:hover { background: #475569; }
+        .btn:disabled { background: var(--border); cursor: not-allowed; opacity: 0.6; }
+
+        /* Camera Scanner Container */
+        #reader {
+            width: 100%;
+            margin-bottom: 12px;
+            border-radius: 6px;
+            overflow: hidden;
+            display: none;
+            background: #000;
         }
 
-        .btn:disabled {
-            background: var(--border);
-            cursor: not-allowed;
-            opacity: 0.6;
-        }
-
-        #map {
-            flex: 1;
-            height: 100%;
-            background: #e5e3df;
-        }
+        #map { flex: 1; height: 100%; background: #e5e3df; }
 
         /* Leaflet Popup Styling */
         .leaflet-popup-content-wrapper, .leaflet-popup-tip {
@@ -169,16 +180,8 @@
             color: var(--text-main);
             border: 1px solid var(--border);
         }
-        .leaflet-popup-content h3 {
-            color: #38bdf8;
-            margin-bottom: 6px;
-            font-size: 1.1rem;
-        }
-        .leaflet-popup-content p {
-            margin: 4px 0;
-            font-size: 0.85rem;
-            color: var(--text-muted);
-        }
+        .leaflet-popup-content h3 { color: #38bdf8; margin-bottom: 6px; font-size: 1.1rem; }
+        .leaflet-popup-content p { margin: 4px 0; font-size: 0.85rem; color: var(--text-muted); }
         .wifi-key {
             background: #0f172a;
             padding: 6px 10px;
@@ -186,9 +189,6 @@
             font-family: monospace;
             color: var(--success);
             margin-top: 8px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
         }
 
         @media (max-width: 768px) {
@@ -209,8 +209,25 @@
         <div class="content">
             <div class="card">
                 <h2 style="font-size: 1rem; margin-bottom: 12px;">
-                    <i class="fa-solid fa-house-signal"></i> Share Your Wi-Fi Access
+                    <i class="fa-solid fa-house-signal"></i> Share Wi-Fi Hotspot
                 </h2>
+
+                <!-- Auto-Fetch Wi-Fi Options -->
+                <div class="btn-group">
+                    <button type="button" class="btn btn-secondary" id="btnCameraQR">
+                        <i class="fa-solid fa-camera"></i> Camera QR
+                    </button>
+                    <button type="button" class="btn btn-secondary" id="btnGalleryQR">
+                        <i class="fa-solid fa-image"></i> Gallery QR
+                    </button>
+                </div>
+
+                <!-- Live Camera Viewport -->
+                <div id="reader"></div>
+
+                <!-- Hidden Input for Gallery Image -->
+                <input type="file" id="qrFileInput" accept="image/*" style="display: none;">
+
                 <form id="wifiForm">
                     <div class="form-group">
                         <label>Venue / Location Name</label>
@@ -219,17 +236,17 @@
 
                     <div class="form-group">
                         <label>Wi-Fi Network Name (SSID)</label>
-                        <input type="text" id="ssid" placeholder="e.g. Cafe_Guest_5G" required>
+                        <input type="text" id="ssid" placeholder="Auto-filled via QR or type SSID" required>
                     </div>
 
                     <div class="form-group">
                         <label>Network Password</label>
-                        <input type="text" id="password" placeholder="Leave empty if open network">
+                        <input type="text" id="password" placeholder="Auto-filled via QR or type key">
                     </div>
 
                     <div class="form-group">
                         <label>Usage Note / Courtesy Rules</label>
-                        <textarea id="notes" rows="2" placeholder="e.g. Free with purchase, available 9 AM - 8 PM"></textarea>
+                        <textarea id="notes" rows="2" placeholder="e.g. Free with coffee purchase"></textarea>
                     </div>
 
                     <div class="form-group">
@@ -237,14 +254,14 @@
                         <input type="text" id="locationStatus" value="Click 'Get Location' below" readonly style="color: var(--text-muted);">
                     </div>
 
-                    <button type="button" class="btn" id="btnLocate" style="background: #334155; margin-bottom: 12px;">
-                        <i class="fa-solid fa-location-crosshairs"></i> Get Current Location
+                    <button type="button" class="btn btn-secondary" id="btnLocate" style="margin-bottom: 12px;">
+                        <i class="fa-solid fa-location-crosshairs"></i> Get GPS Location
                     </button>
 
                     <div class="consent-box">
                         <input type="checkbox" id="ownerConsent" required>
                         <label for="ownerConsent">
-                            <strong>I am the Network Owner / Authorized Representative.</strong> I explicitly consent to sharing this network with the public.
+                            <strong>I am the Network Owner / Representative.</strong> I explicitly consent to sharing this network with the public.
                         </label>
                     </div>
 
@@ -262,42 +279,24 @@
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-    <!-- Firebase JS SDK -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getDatabase, ref, push, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
-
-        // Replace with your Firebase credentials when ready
-        const firebaseConfig = {
-            apiKey: "YOUR_API_KEY",
-            authDomain: "YOUR_PROJECT.firebaseapp.com",
-            databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
-            projectId: "YOUR_PROJECT",
-            storageBucket: "YOUR_PROJECT.appspot.com",
-            messagingSenderId: "YOUR_SENDER_ID",
-            appId: "YOUR_APP_ID"
-        };
-
-        let db = null;
-        let wifiRef = null;
-
-        // Try initializing Firebase
-        try {
-            if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
-                const app = initializeApp(firebaseConfig);
-                db = getDatabase(app);
-                wifiRef = ref(db, 'authorized_hotspots');
-            }
-        } catch (e) {
-            console.warn("Firebase not configured. Using local storage mode.");
-        }
+    <script>
+        // ==========================================
+        // GITHUB DATABASE CONFIGURATION (data.json)
+        // ==========================================
+        const GITHUB_USERNAME = "amin-nepali";
+        const GITHUB_REPO = "openwifi-map";
+        const JSON_FILE_PATH = "data.json"; // Located in root alongside index.html
+        
+        // Add your GitHub Fine-Grained Personal Access Token (with contents:write permission)
+        const GITHUB_TOKEN = "YOUR_GITHUB_PERSONAL_ACCESS_TOKEN"; 
 
         let map, userMarker;
         let selectedCoords = null;
-        const localHotspots = [];
+        let fileSha = "";
+        let html5QrCode = null;
 
         function initMap() {
-            // Initialize Leaflet map with standard OpenStreetMap (100% Free, No API Key)
+            // Leaflet map setup with standard OpenStreetMap
             map = L.map('map').setView([27.7172, 85.3240], 13);
 
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -309,29 +308,147 @@
                 setFormLocation(e.latlng.lat, e.latlng.lng, "Selected pin on map");
             });
 
-            // Try getting user location on load
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(pos => {
-                    map.setView([pos.coords.latitude, pos.coords.longitude], 15);
+                    map.setView([pos.coords.latitude, pos.coords.longitude], 16);
                 });
             }
 
-            // Sync hotspots from Firebase if available
-            if (wifiRef) {
-                onValue(wifiRef, (snapshot) => {
-                    const data = snapshot.val();
-                    if (data) {
-                        Object.keys(data).forEach(key => renderHotspotOnMap(data[key]));
-                    }
-                });
+            // Fetch spots from data.json in the repository
+            fetchHotspotsFromGitHub();
+        }
+
+        // Load data directly from data.json
+        async function fetchHotspotsFromGitHub() {
+            const rawUrl = `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${GITHUB_REPO}/main/${JSON_FILE_PATH}?t=${Date.now()}`;
+            
+            try {
+                const response = await fetch(rawUrl);
+                if (response.ok) {
+                    const hotspots = await response.json();
+                    hotspots.forEach(spot => renderHotspotOnMap(spot));
+                }
+            } catch (err) {
+                console.warn("Could not read data.json from GitHub:", err);
             }
         }
 
-        document.getElementById('btnLocate').addEventListener('click', () => {
-            if (!navigator.geolocation) {
-                alert("Geolocation is not supported by your browser.");
+        // Commit updated entries back to data.json
+        async function saveHotspotsToGitHub(newSpot) {
+            if (!GITHUB_TOKEN || GITHUB_TOKEN === "YOUR_GITHUB_PERSONAL_ACCESS_TOKEN") {
+                alert("Saved to local view! To push updates directly to GitHub, add your Personal Access Token in index.html.");
+                renderHotspotOnMap(newSpot);
                 return;
             }
+
+            const apiUrl = `https://api.github.com/repos/${GITHUB_USERNAME}/${GITHUB_REPO}/contents/${JSON_FILE_PATH}`;
+
+            try {
+                let existingHotspots = [];
+                const getFileRes = await fetch(apiUrl, {
+                    headers: { 'Authorization': `token ${GITHUB_TOKEN}` }
+                });
+
+                if (getFileRes.ok) {
+                    const fileData = await getFileRes.json();
+                    fileSha = fileData.sha;
+                    const decodedContent = decodeURIComponent(escape(atob(fileData.content)));
+                    existingHotspots = JSON.parse(decodedContent);
+                }
+
+                existingHotspots.push(newSpot);
+
+                const jsonString = JSON.stringify(existingHotspots, null, 2);
+                const updatedContentBase64 = btoa(unescape(encodeURIComponent(jsonString)));
+
+                const putRes = await fetch(apiUrl, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `token ${GITHUB_TOKEN}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: `Add Wi-Fi spot: ${newSpot.venueName}`,
+                        content: updatedContentBase64,
+                        sha: fileSha || undefined
+                    })
+                });
+
+                if (putRes.ok) {
+                    alert("Wi-Fi spot published and saved to data.json!");
+                    renderHotspotOnMap(newSpot);
+                } else {
+                    const errData = await putRes.json();
+                    alert("GitHub Commit Error: " + errData.message);
+                }
+            } catch (err) {
+                alert("Error updating data.json: " + err.message);
+            }
+        }
+
+        // ==========================================
+        // CAMERA & GALLERY QR SCANNER
+        // ==========================================
+        
+        // 1. Live Camera Scan
+        document.getElementById('btnCameraQR').addEventListener('click', () => {
+            const readerDiv = document.getElementById('reader');
+            readerDiv.style.display = 'block';
+
+            if (!html5QrCode) {
+                html5QrCode = new Html5Qrcode("reader");
+            }
+
+            html5QrCode.start(
+                { facingMode: "environment" },
+                { fps: 10, qrbox: { width: 250, height: 250 } },
+                (decodedText) => {
+                    parseWifiString(decodedText);
+                    html5QrCode.stop();
+                    readerDiv.style.display = 'none';
+                },
+                (errorMessage) => { /* scanning */ }
+            ).catch(err => {
+                alert("Camera permission denied or camera unavailable.");
+                readerDiv.style.display = 'none';
+            });
+        });
+
+        // 2. Upload from Gallery
+        document.getElementById('btnGalleryQR').addEventListener('click', () => {
+            document.getElementById('qrFileInput').click();
+        });
+
+        document.getElementById('qrFileInput').addEventListener('change', e => {
+            if (e.target.files.length === 0) return;
+            const imageFile = e.target.files[0];
+            const qrScanner = new Html5Qrcode("reader");
+
+            qrScanner.scanFile(imageFile, true)
+                .then(decodedText => parseWifiString(decodedText))
+                .catch(() => alert("No valid Wi-Fi QR code found in selected image."));
+        });
+
+        // Convert Wi-Fi QR format (WIFI:S:SSID;T:WPA;P:PASSWORD;;) to text form
+        function parseWifiString(wifiStr) {
+            const ssidMatch = wifiStr.match(/S:([^;]+)/);
+            const passMatch = wifiStr.match(/P:([^;]+)/);
+
+            if (ssidMatch && ssidMatch[1]) {
+                document.getElementById('ssid').value = ssidMatch[1];
+            }
+            if (passMatch && passMatch[1]) {
+                document.getElementById('password').value = passMatch[1];
+            } else {
+                document.getElementById('password').value = "None (Open Network)";
+            }
+
+            alert("Wi-Fi credentials auto-filled from QR code!");
+        }
+
+        // Location & Form Handlers
+        document.getElementById('btnLocate').addEventListener('click', () => {
+            if (!navigator.geolocation) return alert("Geolocation not supported");
 
             navigator.geolocation.getCurrentPosition(
                 (pos) => {
@@ -339,7 +456,7 @@
                     map.setView([latitude, longitude], 16);
                     setFormLocation(latitude, longitude, "GPS Location Acquired");
                 },
-                (err) => alert("Unable to retrieve location: " + err.message),
+                (err) => alert("Unable to get location: " + err.message),
                 { enableHighAccuracy: true }
             );
         });
@@ -370,40 +487,25 @@
         document.getElementById('wifiForm').addEventListener('submit', (e) => {
             e.preventDefault();
 
-            if (!selectedCoords) {
-                alert("Please select a location on the map or click 'Get Current Location'.");
-                return;
-            }
+            if (!selectedCoords) return alert("Please select a location on the map.");
 
             const payload = {
                 venueName: document.getElementById('venueName').value,
                 ssid: document.getElementById('ssid').value,
                 password: document.getElementById('password').value || "None (Open)",
                 notes: document.getElementById('notes').value || "No special instructions",
-                ownerConsent: true,
                 lat: selectedCoords.lat,
                 lng: selectedCoords.lng,
                 timestamp: Date.now()
             };
 
-            if (wifiRef) {
-                push(wifiRef, payload).then(() => {
-                    alert("Network spot saved to live database!");
-                    resetForm();
-                }).catch(err => alert("Error saving spot: " + err.message));
-            } else {
-                renderHotspotOnMap(payload);
-                alert("Network spot added to map! (To share across devices, connect Firebase credentials).");
-                resetForm();
-            }
-        });
+            saveHotspotsToGitHub(payload);
 
-        function resetForm() {
             document.getElementById('wifiForm').reset();
             submitBtn.disabled = true;
             selectedCoords = null;
             if (userMarker) map.removeLayer(userMarker);
-        }
+        });
 
         function renderHotspotOnMap(spot) {
             const wifiIcon = L.divIcon({
@@ -420,9 +522,7 @@
                     <h3>${escapeHtml(spot.venueName)}</h3>
                     <p style="color:#10b981; font-weight:bold;"><i class="fa-solid fa-circle-check"></i> Owner Consented</p>
                     <p style="margin-top:8px;"><strong>SSID:</strong> ${escapeHtml(spot.ssid)}</p>
-                    <div class="wifi-key">
-                        <span>Key: ${escapeHtml(spot.password)}</span>
-                    </div>
+                    <div class="wifi-key">Key: ${escapeHtml(spot.password)}</div>
                     <p style="margin-top:8px; font-style:italic;">"${escapeHtml(spot.notes)}"</p>
                 </div>
             `;
