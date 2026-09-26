@@ -56,27 +56,44 @@
         }
 
         body { 
-            display: flex; 
+            display: block;
             height: 100vh; 
+            height: 100dvh;
             background-color: var(--bg-dark); 
             color: var(--text-main); 
             overflow: hidden; 
         }
 
         #sidebar {
-            width: 380px;
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            width: min(380px, calc(100vw - 16px));
+            height: 100vh;
+            height: 100dvh;
             background: var(--panel-bg);
             border-right: 1px solid var(--border);
             display: flex;
             flex-direction: column;
-            z-index: 1000;
+            z-index: 1100;
             box-shadow: 4px 0 15px rgba(0,0,0,0.3);
+            transform: translateX(calc(-100% - 8px));
+            transition: transform 0.24s ease;
+        }
+
+        body.sidebar-open #sidebar {
+            transform: translateX(0);
         }
 
         .header { 
             padding: 20px; 
             border-bottom: 1px solid var(--border); 
             background: rgba(15, 23, 42, 0.6); 
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
         }
 
         .header h1 { 
@@ -85,6 +102,18 @@
             display: flex; 
             align-items: center; 
             gap: 10px; 
+            flex: 1;
+        }
+
+        .panel-close {
+            flex: 0 0 38px;
+            width: 38px;
+            height: 38px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: #334155;
+            color: var(--text-main);
+            cursor: pointer;
         }
 
         .content { 
@@ -208,9 +237,35 @@
         }
 
         #map { 
-            flex: 1; 
-            height: 100%; 
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100vh;
+            height: 100dvh;
             background: #e5e3df; 
+            z-index: 0;
+        }
+
+        .open-panel-button {
+            position: fixed;
+            top: 12px;
+            right: 58px;
+            z-index: 1200;
+            display: grid;
+            place-items: center;
+            width: 42px;
+            height: 42px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            background: #fff;
+            color: #0f172a;
+            box-shadow: 0 1px 5px rgba(0, 0, 0, 0.35);
+            font-size: 1.4rem;
+            cursor: pointer;
+        }
+
+        body.sidebar-open .open-panel-button {
+            display: none;
         }
 
         /* Leaflet Popup Styling */
@@ -297,18 +352,32 @@
         .wifi-dialog .btn-group { margin-top: 18px; }
 
         @media (max-width: 768px) {
-            body { flex-direction: column-reverse; }
-            #sidebar { width: 100%; height: 50vh; }
-            #map { height: 50vh; }
+            #sidebar {
+                top: auto;
+                right: 0;
+                bottom: 0;
+                width: 100%;
+                height: min(78vh, 680px);
+                height: min(78dvh, 680px);
+                border: 1px solid var(--border);
+                border-bottom: 0;
+                border-radius: 8px 8px 0 0;
+                transform: translateY(calc(100% + 8px));
+            }
+
+            body.sidebar-open #sidebar { transform: translateY(0); }
         }
     </style>
 </head>
 <body>
 
     <!-- Sidebar Controls -->
-    <div id="sidebar">
+    <div id="sidebar" aria-hidden="true" inert>
         <div class="header">
             <h1><i class="fa-solid fa-wifi"></i> Community Access Map</h1>
+            <button type="button" class="panel-close" id="closeSidebar" aria-label="Close Wi-Fi panel" title="Close">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
         </div>
 
         <div class="content">
@@ -368,6 +437,9 @@
 
     <!-- Map Area -->
     <div id="map"></div>
+    <button type="button" class="open-panel-button" id="openSidebar" aria-label="Open Wi-Fi panel" aria-controls="sidebar" aria-expanded="false" title="Add a Wi-Fi hotspot">
+        <i class="fa-solid fa-plus"></i>
+    </button>
 
     <dialog id="connectDialog" class="wifi-dialog" aria-labelledby="connectTitle">
         <div class="dialog-header">
@@ -416,6 +488,21 @@
         let html5QrCode = null;
         const hotspotMarkers = new Map();
         let editingHotspot = null;
+
+        const sidebar = document.getElementById('sidebar');
+        const openSidebarButton = document.getElementById('openSidebar');
+        const closeSidebarButton = document.getElementById('closeSidebar');
+
+        function setSidebarOpen(isOpen) {
+            document.body.classList.toggle('sidebar-open', isOpen);
+            sidebar.setAttribute('aria-hidden', String(!isOpen));
+            sidebar.inert = !isOpen;
+            openSidebarButton.setAttribute('aria-expanded', String(isOpen));
+            (isOpen ? closeSidebarButton : openSidebarButton).focus();
+        }
+
+        openSidebarButton.addEventListener('click', () => setSidebarOpen(true));
+        closeSidebarButton.addEventListener('click', () => setSidebarOpen(false));
 
         function initMap() {
             // Center map initially
