@@ -12,23 +12,19 @@ app.use(express.json());
 // Serve static frontend files (index.html, images, CSS) from current directory
 app.use(express.static(__dirname));
 
-// Configure the database through environment variables; never commit credentials.
-const hasDatabaseConfig = ['DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME']
-    .every(key => process.env[key]);
-const db = hasDatabaseConfig ? mysql.createPool({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
+// MySQL Connection Pool Configuration
+const db = mysql.createPool({
+    host: process.env.DB_HOST || 'sql12.freesqldatabase.com',
+    user: process.env.DB_USER || 'sql12837806',
+    password: process.env.DB_PASSWORD || 'GHFN2IH1CW',
+    database: process.env.DB_NAME || 'sql12837806',
     port: process.env.DB_PORT || 3306,
     waitForConnections: true,
     connectionLimit: 10
-}) : null;
+});
 
 // GET Endpoint: Fetch all Wi-Fi hotspots
 app.get('/api/hotspots', async (req, res) => {
-    if (!db) return res.status(503).json({ error: 'Database is not configured' });
-
     try {
         const [rows] = await db.query('SELECT * FROM wifi_hotspots ORDER BY created_at DESC');
         res.json(rows);
@@ -40,8 +36,6 @@ app.get('/api/hotspots', async (req, res) => {
 // POST Endpoint: Save a new Wi-Fi hotspot
 app.post('/api/hotspots', async (req, res) => {
     const { venueName, ssid, password, notes, lat, lng } = req.body;
-
-    if (!db) return res.status(503).json({ error: 'Database is not configured' });
 
     if (!venueName || !ssid || !lat || !lng) {
         return res.status(400).json({ error: 'Missing required fields' });
