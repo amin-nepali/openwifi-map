@@ -60,5 +60,5 @@ Unlike traditional crowdsourced password apps, **OpenWifi Map enforces an owner-
 
 1. **Clone the repository:**
    ```bash
-   git clone [https://github.com/your-username/openwifi-map.git](https://github.com/your-username/openwifi-map.git)
+   git clone [https://github.com/amin-nepali/openwifi-map.git](https://github.com/your-username/openwifi-map.git)
    cd openwifi-map
