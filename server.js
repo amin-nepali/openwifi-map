@@ -17,6 +17,11 @@ const db = mysql.createPool({
     connectionLimit: 10
 });
 
+// Add this right above your app.get('/api/hotspots') line
+app.get('/', (req, res) => {
+    res.send('API is running successfully!');
+});
+
 // GET Endpoint: Fetch all Wi-Fi hotspots
 app.get('/api/hotspots', async (req, res) => {
     try {
