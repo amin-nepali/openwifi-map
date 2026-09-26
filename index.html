@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Consent-Based Public Wi-Fi Sharing Map</title>
+    <title>Community Wi-Fi Sharing Map</title>
     
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
-    <!-- FontAwesome for Icons -->
+    <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <style>
@@ -21,7 +21,6 @@
             --text-muted: #94a3b8;
             --border: #334155;
             --success: #10b981;
-            --danger: #ef4444;
         }
 
         * {
@@ -39,7 +38,6 @@
             overflow: hidden;
         }
 
-        /* Sidebar UI */
         #sidebar {
             width: 380px;
             background: var(--panel-bg);
@@ -90,7 +88,7 @@
             font-weight: 500;
         }
 
-        input[type="text"], input[type="password"], select, textarea {
+        input[type="text"], textarea {
             width: 100%;
             padding: 10px;
             background: #0f172a;
@@ -102,11 +100,10 @@
             transition: border-color 0.2s;
         }
 
-        input:focus, select:focus, textarea:focus {
+        input:focus, textarea:focus {
             border-color: var(--primary);
         }
 
-        /* Consent Box */
         .consent-box {
             background: rgba(37, 99, 235, 0.1);
             border: 1px solid rgba(37, 99, 235, 0.3);
@@ -160,23 +157,13 @@
             opacity: 0.6;
         }
 
-        .status-badge {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 0.75rem;
-            font-weight: bold;
-        }
-        .status-owner { background: rgba(16, 185, 129, 0.2); color: var(--success); }
-
-        /* Map UI */
         #map {
             flex: 1;
             height: 100%;
-            background: #000;
+            background: #e5e3df;
         }
 
-        /* Leaflet Popup Styling Override */
+        /* Leaflet Popup Styling */
         .leaflet-popup-content-wrapper, .leaflet-popup-tip {
             background: var(--panel-bg);
             color: var(--text-main);
@@ -192,7 +179,7 @@
             font-size: 0.85rem;
             color: var(--text-muted);
         }
-        .leaflet-popup-content .wifi-key {
+        .wifi-key {
             background: #0f172a;
             padding: 6px 10px;
             border-radius: 4px;
@@ -220,7 +207,6 @@
         </div>
 
         <div class="content">
-            <!-- Share Form -->
             <div class="card">
                 <h2 style="font-size: 1rem; margin-bottom: 12px;">
                     <i class="fa-solid fa-house-signal"></i> Share Your Wi-Fi Access
@@ -243,7 +229,7 @@
 
                     <div class="form-group">
                         <label>Usage Note / Courtesy Rules</label>
-                        <textarea id="notes" rows="2" placeholder="e.g. Ask staff for purchase, available 9 AM - 8 PM"></textarea>
+                        <textarea id="notes" rows="2" placeholder="e.g. Free with purchase, available 9 AM - 8 PM"></textarea>
                     </div>
 
                     <div class="form-group">
@@ -255,11 +241,10 @@
                         <i class="fa-solid fa-location-crosshairs"></i> Get Current Location
                     </button>
 
-                    <!-- Mandatory Owner Consent Checkbox -->
                     <div class="consent-box">
                         <input type="checkbox" id="ownerConsent" required>
                         <label for="ownerConsent">
-                            <strong>I am the Network Owner / Authorized Representative.</strong> I explicitly consent to sharing this network credential with the public community.
+                            <strong>I am the Network Owner / Authorized Representative.</strong> I explicitly consent to sharing this network with the public.
                         </label>
                     </div>
 
@@ -277,12 +262,12 @@
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-    <!-- Firebase SDK (Modular App/Database) -->
+    <!-- Firebase JS SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getDatabase, ref, push, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-        // Firebase Configuration (Replace with your own project configuration)
+        // Replace with your Firebase credentials when ready
         const firebaseConfig = {
             apiKey: "YOUR_API_KEY",
             authDomain: "YOUR_PROJECT.firebaseapp.com",
@@ -293,34 +278,55 @@
             appId: "YOUR_APP_ID"
         };
 
-        // Initialize Firebase
-        const app = initializeApp(firebaseConfig);
-        const db = getDatabase(app);
-        const wifiRef = ref(db, 'authorized_hotspots');
+        let db = null;
+        let wifiRef = null;
 
-        // Application State
+        // Try initializing Firebase
+        try {
+            if (firebaseConfig.apiKey !== "YOUR_API_KEY") {
+                const app = initializeApp(firebaseConfig);
+                db = getDatabase(app);
+                wifiRef = ref(db, 'authorized_hotspots');
+            }
+        } catch (e) {
+            console.warn("Firebase not configured. Using local storage mode.");
+        }
+
         let map, userMarker;
         let selectedCoords = null;
+        const localHotspots = [];
 
-        // Initialize Map
         function initMap() {
-            // Default center (e.g., Kathmandu/Default view)
+            // Initialize Leaflet map with standard OpenStreetMap (100% Free, No API Key)
             map = L.map('map').setView([27.7172, 85.3240], 13);
 
-            // Dark Mode Tile Layer (CartoDB Dark Matter)
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
-                subdomains: 'abcd',
-                maxZoom: 20
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                maxZoom: 19
             }).addTo(map);
 
-            // Click map to select location manually
             map.on('click', (e) => {
                 setFormLocation(e.latlng.lat, e.latlng.lng, "Selected pin on map");
             });
+
+            // Try getting user location on load
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(pos => {
+                    map.setView([pos.coords.latitude, pos.coords.longitude], 15);
+                });
+            }
+
+            // Sync hotspots from Firebase if available
+            if (wifiRef) {
+                onValue(wifiRef, (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        Object.keys(data).forEach(key => renderHotspotOnMap(data[key]));
+                    }
+                });
+            }
         }
 
-        // Get User GPS Location
         document.getElementById('btnLocate').addEventListener('click', () => {
             if (!navigator.geolocation) {
                 alert("Geolocation is not supported by your browser.");
@@ -330,12 +336,10 @@
             navigator.geolocation.getCurrentPosition(
                 (pos) => {
                     const { latitude, longitude } = pos.coords;
-                    map.setView([latitude, longitude], 17);
+                    map.setView([latitude, longitude], 16);
                     setFormLocation(latitude, longitude, "GPS Location Acquired");
                 },
-                (err) => {
-                    alert("Unable to retrieve location: " + err.message);
-                },
+                (err) => alert("Unable to retrieve location: " + err.message),
                 { enableHighAccuracy: true }
             );
         });
@@ -356,7 +360,6 @@
             }
         }
 
-        // Enable Submit button only when explicit Consent Box is checked
         const consentCheckbox = document.getElementById('ownerConsent');
         const submitBtn = document.getElementById('btnSubmit');
 
@@ -364,7 +367,6 @@
             submitBtn.disabled = !e.target.checked;
         });
 
-        // Submit Wi-Fi Spot to Firebase
         document.getElementById('wifiForm').addEventListener('submit', (e) => {
             e.preventDefault();
 
@@ -384,63 +386,56 @@
                 timestamp: Date.now()
             };
 
-            // Save to Firebase Realtime Database
-            push(wifiRef, payload)
-                .then(() => {
-                    alert("Network spot registered successfully with owner consent!");
-                    document.getElementById('wifiForm').reset();
-                    submitBtn.disabled = true;
-                    selectedCoords = null;
-                    if (userMarker) map.removeLayer(userMarker);
-                })
-                .catch((err) => {
-                    alert("Error saving hotspot: " + err.message);
-                });
+            if (wifiRef) {
+                push(wifiRef, payload).then(() => {
+                    alert("Network spot saved to live database!");
+                    resetForm();
+                }).catch(err => alert("Error saving spot: " + err.message));
+            } else {
+                renderHotspotOnMap(payload);
+                alert("Network spot added to map! (To share across devices, connect Firebase credentials).");
+                resetForm();
+            }
         });
 
-        // Realtime Listener: Load network spots onto the map dynamically
-        onValue(wifiRef, (snapshot) => {
-            const data = snapshot.val();
-            if (!data) return;
+        function resetForm() {
+            document.getElementById('wifiForm').reset();
+            submitBtn.disabled = true;
+            selectedCoords = null;
+            if (userMarker) map.removeLayer(userMarker);
+        }
 
-            Object.keys(data).forEach((key) => {
-                const spot = data[key];
-
-                // Render green icon for consented hotspots
-                const wifiIcon = L.divIcon({
-                    html: `<div style="background:#10b981; color:white; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid white; box-shadow:0 0 10px rgba(16,185,129,0.5);">
-                            <i class="fa-solid fa-wifi"></i>
-                           </div>`,
-                    className: '',
-                    iconSize: [32, 32],
-                    iconAnchor: [16, 16]
-                });
-
-                const popupContent = `
-                    <div>
-                        <h3>${escapeHtml(spot.venueName)}</h3>
-                        <p><span class="status-badge status-owner"><i class="fa-solid fa-circle-check"></i> Owner Consented</span></p>
-                        <p style="margin-top:8px;"><strong>SSID:</strong> ${escapeHtml(spot.ssid)}</p>
-                        <div class="wifi-key">
-                            <span>Key: ${escapeHtml(spot.password)}</span>
-                            <i class="fa-regular fa-copy" style="cursor:pointer;" onclick="navigator.clipboard.writeText('${escapeHtml(spot.password)}')"></i>
-                        </div>
-                        <p style="margin-top:8px; font-style:italic;">"${escapeHtml(spot.notes)}"</p>
-                    </div>
-                `;
-
-                L.marker([spot.lat, spot.lng], { icon: wifiIcon })
-                    .addTo(map)
-                    .bindPopup(popupContent);
+        function renderHotspotOnMap(spot) {
+            const wifiIcon = L.divIcon({
+                html: `<div style="background:#10b981; color:white; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid white; box-shadow:0 0 10px rgba(0,0,0,0.3);">
+                        <i class="fa-solid fa-wifi"></i>
+                       </div>`,
+                className: '',
+                iconSize: [32, 32],
+                iconAnchor: [16, 16]
             });
-        });
 
-        // Helper function to sanitize user inputs
+            const popupContent = `
+                <div>
+                    <h3>${escapeHtml(spot.venueName)}</h3>
+                    <p style="color:#10b981; font-weight:bold;"><i class="fa-solid fa-circle-check"></i> Owner Consented</p>
+                    <p style="margin-top:8px;"><strong>SSID:</strong> ${escapeHtml(spot.ssid)}</p>
+                    <div class="wifi-key">
+                        <span>Key: ${escapeHtml(spot.password)}</span>
+                    </div>
+                    <p style="margin-top:8px; font-style:italic;">"${escapeHtml(spot.notes)}"</p>
+                </div>
+            `;
+
+            L.marker([spot.lat, spot.lng], { icon: wifiIcon })
+                .addTo(map)
+                .bindPopup(popupContent);
+        }
+
         function escapeHtml(str) {
             return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
 
-        // Initialize on load
         window.onload = initMap;
     </script>
 </body>
